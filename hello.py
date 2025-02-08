@@ -47,6 +47,7 @@ NUM_ACTIONS = 6  # Number of actions in ALE-Py Pong
 # DQN Network Definition #
 ##########################
 
+
 class DQN:
     def __init__(self, input_shape, NUM_ACTIONS):
         # Here we assume input_shape is (C, H, W), for example (4,84,84)
@@ -69,28 +70,34 @@ class DQN:
         x = self.fc2(x)
         return x
 
+
 @TinyJit
 def jit_forward(model, x):
     # Use .realize() to force JIT evaluation for repeated inference.
     return model(x).realize()
 
+
 @TinyJit
 def jit_forward_target(target_model, x):
     return target_model(x).realize()
 
+
 ##########################
 # Utility Functions      #
 ##########################
+
 
 def preprocess_state(state):
     state = np.array(state, dtype=np.float32) / 255.0
     # Remove transpose as state is already in (C, H, W) format.
     return state
 
+
 def update_target(model, target_model):
     """Copy model parameters to target_model."""
     sd = state.get_state_dict(model)
     state.load_state_dict(target_model, sd)
+
 
 def epsilon_by_step(step_count):
     if step_count >= EPSILON_DECAY_STEPS:
@@ -98,25 +105,37 @@ def epsilon_by_step(step_count):
     slope = (FINAL_EPSILON - INITIAL_EPSILON) / EPSILON_DECAY_STEPS
     return INITIAL_EPSILON + slope * step_count
 
+
 ##########################
 # Checkpoint Functions   #
 ##########################
 
-def save_checkpoint(model, target_model, optimizer, total_env_steps, num_gradient_updates, 
-                   filename="dqn_checkpoint.safetensors"):
+
+def save_checkpoint(
+    model,
+    target_model,
+    optimizer,
+    total_env_steps,
+    num_gradient_updates,
+    filename="dqn_checkpoint.safetensors",
+):
     # Get model parameters
     model_sd = state.get_state_dict(model)
     target_model_sd = state.get_state_dict(target_model)
     opt_sd = state.get_state_dict(optimizer)
-    
+
     # Convert training progress to tensors (renamed for clarity)
-    env_steps_tensor = Tensor([total_env_steps], requires_grad=False, dtype=dtypes.int64)
-    grad_updates_tensor = Tensor([num_gradient_updates], requires_grad=False, dtype=dtypes.int64)
-    
+    env_steps_tensor = Tensor(
+        [total_env_steps], requires_grad=False, dtype=dtypes.int64
+    )
+    grad_updates_tensor = Tensor(
+        [num_gradient_updates], requires_grad=False, dtype=dtypes.int64
+    )
+
     # Merge everything into a single dict with unique prefixes
     ckpt_dict = {
         "total_env_steps": env_steps_tensor,
-        "num_gradient_updates": grad_updates_tensor
+        "num_gradient_updates": grad_updates_tensor,
     }
     for k, v in model_sd.items():
         ckpt_dict[f"model.{k}"] = v
@@ -128,9 +147,10 @@ def save_checkpoint(model, target_model, optimizer, total_env_steps, num_gradien
     state.safe_save(ckpt_dict, filename)
     print(f"Checkpoint saved to {filename}")
 
+
 def load_checkpoint(filename, model, target_model, optimizer):
     ckpt_dict = state.safe_load(filename)
-    
+
     # Recover the progress counters (renamed for clarity)
     total_env_steps = int(ckpt_dict["total_env_steps"].numpy()[0])
     num_gradient_updates = int(ckpt_dict["num_gradient_updates"].numpy()[0])
@@ -141,71 +161,72 @@ def load_checkpoint(filename, model, target_model, optimizer):
     optim_sd = {}
     for k, v in ckpt_dict.items():
         if k.startswith("model."):
-            model_sd[k[len("model."):]] = v
+            model_sd[k[len("model.") :]] = v
         elif k.startswith("target_model."):
-            target_model_sd[k[len("target_model."):]] = v
+            target_model_sd[k[len("target_model.") :]] = v
         elif k.startswith("optim."):
-            optim_sd[k[len("optim."):]] = v
-    
+            optim_sd[k[len("optim.") :]] = v
+
     # Load parameters back into the models and optimizer
     state.load_state_dict(model, model_sd)
     state.load_state_dict(target_model, target_model_sd)
     state.load_state_dict(optimizer, optim_sd)
-    
+
     print(f"Loaded checkpoint from {filename}:")
     print(f"  Total environment steps: {total_env_steps}")
     print(f"  Gradient updates completed: {num_gradient_updates}")
     return total_env_steps, num_gradient_updates
 
+
 ##########################
 # Main Training Loop     #
 ##########################
+
 
 def main():
     # Environment setup with consistent frame skip
     gym.register_envs(ale_py)
     env = gym.make("ALE/Pong-v5", render_mode="rgb_array", frameskip=1)
     env = gym.wrappers.AtariPreprocessing(
-        env, 
-        grayscale_obs=True, 
+        env,
+        grayscale_obs=True,
         frame_skip=4,  # This is the only frame skip we'll use
-        scale_obs=True
+        scale_obs=True,
     )
     env = gym.wrappers.FrameStackObservation(env, stack_size=FRAME_STACK)
-    
+
     # Initialize networks and optimizer
     model = DQN(INPUT_SHAPE, NUM_ACTIONS)
     target_model = DQN(INPUT_SHAPE, NUM_ACTIONS)
     optimizer = optim.Adam(state.get_parameters(model), lr=LEARNING_RATE)
-    
+
     # Initialize step counters
-    total_env_steps = 0      # Total steps taken in environment
+    total_env_steps = 0  # Total steps taken in environment
     num_gradient_updates = 0  # Number of gradient updates performed
-    
+
     # Try to load checkpoint
     try:
         total_env_steps, num_gradient_updates = load_checkpoint(
-            "dqn_checkpoint.safetensors", 
-            model, target_model, optimizer
+            "dqn_checkpoint.safetensors", model, target_model, optimizer
         )
     except Exception as e:
         print(f"Starting fresh (checkpoint load failed: {e})")
 
     # Initialize fixed-size replay buffer
     replay_buffer = ReplayBuffer(REPLAY_BUFFER_SIZE, state_shape=INPUT_SHAPE)
-    
+
     with Tensor.train():
         for episode in range(NUM_EPISODES):
             obs, info = env.reset()
             state_np = preprocess_state(obs)
             total_reward = 0
             done = False
-            
+
             # Collect experience for this episode
             while not done:
                 # Each env step represents 4 frames due to frame skip
-                total_env_steps += 4  
-                
+                total_env_steps += 4
+
                 # Epsilon follows env steps for consistent exploration
                 epsilon = epsilon_by_step(total_env_steps)
 
@@ -231,19 +252,30 @@ def main():
                 total_reward += reward
 
                 # Train when we have enough samples for a batch
-                if len(replay_buffer) >= MIN_REPLAY_SIZE and total_env_steps % TRAIN_FREQ == 0:
+                if (
+                    len(replay_buffer) >= MIN_REPLAY_SIZE
+                    and total_env_steps % TRAIN_FREQ == 0
+                ):
                     # Perform gradient update
                     num_gradient_updates += 1
-                    
+
                     # Sample a batch from the replay buffer
-                    batch_state, batch_action, batch_reward, batch_next_state, batch_done = replay_buffer.sample(BATCH_SIZE)
-                    
+                    (
+                        batch_state,
+                        batch_action,
+                        batch_reward,
+                        batch_next_state,
+                        batch_done,
+                    ) = replay_buffer.sample(BATCH_SIZE)
+
                     # Convert to tensors
                     batch_state = Tensor(batch_state)
                     batch_next_state = Tensor(batch_next_state)
                     batch_reward = Tensor(batch_reward).reshape(BATCH_SIZE, 1)
-                    batch_done = Tensor(batch_done.astype(np.float32)).reshape(BATCH_SIZE, 1)
-                    
+                    batch_done = Tensor(batch_done.astype(np.float32)).reshape(
+                        BATCH_SIZE, 1
+                    )
+
                     # Current Q-values
                     q_values = model(batch_state)
                     one_hot = np.zeros((BATCH_SIZE, NUM_ACTIONS), dtype=np.float32)
@@ -251,36 +283,52 @@ def main():
                         one_hot[i, a] = 1.0
                     one_hot = Tensor(one_hot)
                     q_value = (q_values * one_hot).sum(axis=1).reshape(BATCH_SIZE, 1)
-                    
+
                     # Target Q-values
                     next_q_values = jit_forward_target(target_model, batch_next_state)
-                    max_next_q = Tensor(next_q_values.numpy().max(axis=1, keepdims=True))
+                    max_next_q = Tensor(
+                        next_q_values.numpy().max(axis=1, keepdims=True)
+                    )
                     target = batch_reward + GAMMA * max_next_q * (1 - batch_done)
-                    
+
                     # Update
                     loss = ((q_value - target) ** 2).mean()
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
-                    
+
                     if num_gradient_updates % 100 == 0:
-                        print(f"Step: {total_env_steps}, Updates: {num_gradient_updates}, Loss: {loss.item():.4f}, Current Reward: {total_reward:.1f}, Epsilon: {epsilon:.3f}")
+                        print(
+                            f"Step: {total_env_steps}, Updates: {num_gradient_updates}, Loss: {loss.item():.4f}, Current Reward: {total_reward:.1f}, Epsilon: {epsilon:.3f}"
+                        )
 
                 # Update target network message
                 if total_env_steps % TARGET_UPDATE_FREQ == 0:
-                    print(f"Target network updated - Step: {total_env_steps}, Updates: {num_gradient_updates}, Current Reward: {total_reward:.1f}")
-                
+                    print(
+                        f"Target network updated - Step: {total_env_steps}, Updates: {num_gradient_updates}, Current Reward: {total_reward:.1f}"
+                    )
+
                 # Save checkpoint every 10k env steps
                 if total_env_steps % 10000 == 0:
                     save_checkpoint(
-                        model, target_model, optimizer,
-                        total_env_steps, num_gradient_updates
+                        model,
+                        target_model,
+                        optimizer,
+                        total_env_steps,
+                        num_gradient_updates,
                     )
-            
+
             # Episode summary
-            print(f"Episode {episode + 1}: Steps: {total_env_steps}, Final Reward: {total_reward:.1f}, Updates: {num_gradient_updates}, Epsilon: {epsilon:.3f}")
+            print(
+                f"Episode {episode + 1}: Steps: {total_env_steps}, Final Reward: {total_reward:.1f}, Updates: {num_gradient_updates}, Epsilon: {epsilon:.3f}"
+            )
 
     env.close()
+    # Save final checkpoint
+    save_checkpoint(
+        model, target_model, optimizer, total_env_steps, num_gradient_updates
+    )
+
 
 if __name__ == "__main__":
     main()
