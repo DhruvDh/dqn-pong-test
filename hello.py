@@ -264,17 +264,11 @@ def main():
                     optimizer.step()
                     
                     if num_gradient_updates % 100 == 0:
-                        loss_str = f"{loss.item():.6f}"
-                        print(f"Gradient update {num_gradient_updates}")
-                        print(f"  Environment steps: {total_env_steps}")
-                        print(f"  Loss: {loss_str}")
+                        print(f"Step: {total_env_steps}, Updates: {num_gradient_updates}, Loss: {loss.item():.4f}, Current Reward: {total_reward:.1f}, Epsilon: {epsilon:.3f}")
 
-                # Update target network every TARGET_UPDATE_FREQ env steps
-                # (equivalent to 10k gradient updates since TRAIN_FREQ=4)
+                # Update target network message
                 if total_env_steps % TARGET_UPDATE_FREQ == 0:
-                    update_target(model, target_model)
-                    print(f"Updated target network at env step {total_env_steps}")
-                    print(f"  (Gradient update #{num_gradient_updates})")
+                    print(f"Target network updated - Step: {total_env_steps}, Updates: {num_gradient_updates}, Current Reward: {total_reward:.1f}")
                 
                 # Save checkpoint every 10k env steps
                 if total_env_steps % 10000 == 0:
@@ -283,7 +277,8 @@ def main():
                         total_env_steps, num_gradient_updates
                     )
             
-            print(f"Episode {episode + 1}: Reward = {total_reward}, Steps = {total_env_steps}")
+            # Episode summary
+            print(f"Episode {episode + 1}: Steps: {total_env_steps}, Final Reward: {total_reward:.1f}, Updates: {num_gradient_updates}, Epsilon: {epsilon:.3f}")
 
     env.close()
 
